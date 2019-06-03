@@ -119,6 +119,12 @@ class AppWindow(QDialog):
         except OSError as e:
             print(e)  
 
+def word_position(string, subStr, findCnt):
+    listStr = string.split(subStr,findCnt)
+    if len(listStr) <= findCnt:
+        return "not find"
+    return len(string)-len(listStr[-1])-len(subStr)
+
 def recovery(time_stamp, ib_path, dir_path):
     ib = ib_path + "_" + time_stamp
 
@@ -141,32 +147,36 @@ def recovery(time_stamp, ib_path, dir_path):
     # if have new folder, create it to recovery folder
     for i in add_dlist:
         e = 0
+        i_psition = word_position(i, "/", 9)
         for j in tar_dlist:
-            if i[113:-1] == j[73:-1]:
+            j_position = word_position(j, "/", 6)
+            if i[i_psition:-1] == j[j_position:-1]:
                 e = 1
                 continue
         if e == 0:
-            os.mkdir(dir_path + i[114:-1])
+            os.mkdir(dir_path + i[i_psition:-1])
     
     # if have new file, copy it to recovery folder
     for i in add_flist:
+        i_psition = word_position(i, "/", 9)
         path = ""
         for j in i.split("/")[:-1]:
             if j == "":
                 path = "/"
             else:
                 path = path + j + "/" 
-        shutil.copy(i[:-1], dir_path + i[114:-1])
+        shutil.copy(i[:-1], dir_path + i[i_psition:-1])
     
     # if have modify file, copy it to recovery folder
     for i in modify_flist:
+        i_psition = word_position(i, "/", 9)
         path = ""
         for j in i.split("/")[:-1]:
             if j == "":
                 path = "/"
             else:
                 path = path + j + "/" 
-        shutil.copy(i[:-1], dir_path + i[117:-1])
+        shutil.copy(i[:-1], dir_path + i[i_psition:-1])
 
     # if need to delete file, delete it
     try:
@@ -177,9 +187,6 @@ def recovery(time_stamp, ib_path, dir_path):
         print(e)
     finally:
         delete_fp.close() 
-
- 
-
     
  
  
