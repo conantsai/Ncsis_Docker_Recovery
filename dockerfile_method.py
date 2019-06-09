@@ -95,8 +95,13 @@ class AppWindow(QDialog):
                 os.remove(f.readline()[:-1])
             except Exception as e:
                 pass
-            finally:
-                tar.close()
+
+        
+        # import the full backup status to image
+        try:
+            os.system("cat *.tar " + "| docker import - " + recovery_id)
+        except OSError as e:
+            print(e) 
 
         # get the incremental backup list
         latest_backup = recovery_id[-10:]
@@ -106,19 +111,22 @@ class AppWindow(QDialog):
             ib_sort.append(i[-10:])
         ib_sort.sort()
 
+        try:
+            dockerfile = open("/usr/local/Ncsis_Docker_Recovery/dockerfile", "a+")
+            dockerfile.seek(0)
+            dockerfile.truncate()
+            dockerfile.writelines("FROM " + recovery_id + ":latest" + "\n")
+        except: 
+            pass
+        finally:
+            dockerfile.close()
+
         for i in ib_sort:
             if int(i) ==  int(latest_backup):
-                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath)
+                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id)
                 break
             else:
-                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath)
-
-        try:
-            os.chdir(recovery_path)
-            os.system("tar cvf " + latest_backup + ".tar " + recovery_dirpath)  
-            os.system("cat " + latest_backup + ".tar " + "| docker import - " + recovery_id)
-        except OSError as e:
-            print(e)  
+                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id) 
 
 def word_position(string, subStr, findCnt):
     listStr = string.split(subStr,findCnt)
@@ -126,7 +134,7 @@ def word_position(string, subStr, findCnt):
         return "not find"
     return len(string)-len(listStr[-1])-len(subStr)
 
-def recovery(time_stamp, ib_path, dir_path):
+def recovery(time_stamp, ib_path, dir_path, image_id):
     ib = ib_path + "_" + time_stamp
 
     # list the incremental backup add file
@@ -144,46 +152,87 @@ def recovery(time_stamp, ib_path, dir_path):
     # list the full backup folder
     with os.popen("find " + dir_path + " -type d") as f:
         tar_dlist = f.readlines()
-
-    # if have new folder, create it to recovery folder
-    for i in add_dlist:
-        key = 0
-        i_psition = word_position(i, "/", 9)
-        for j in tar_dlist:
-            j_position = word_position(j, "/", 6)
-            if i[i_psition:-1] == j[j_position:-1]:
-                key = 1
-                continue
-        if key == 0:
-            os.mkdir(dir_path + i[i_psition:-1])
     
-    # if have new file, copy it to recovery folder
-    for i in add_flist:
-        i_psition = word_position(i, "/", 9)
-        shutil.copy(i[:-1], dir_path + i[i_psition:-1])
-    
-    # if have modify file, copy it to recovery folder
-    for i in modify_flist:
-        i_psition = word_position(i, "/", 9)
-        # path = ""
-        # for j in i.split("/")[:-1]:
-        #     if j == "":
-        #         path = "/"
-        #     else:
-        #         path = path + j + "/" 
-        shutil.copy(i[:-1], dir_path + i[i_psition:-1])
-
-    # if need to delete file, delete it
     try:
-        delete_fp = open(ib + "/Delete/delete_list.txt", "r")
-        for i in delete_fp.readlines():
-            os.remove(dir_path + i[1:-1])
-    except IOError as e:
-        print(e)
+        dockerfile = open("/usr/local/Ncsis_Docker_Recovery/dockerfile", "a+")
+
+        # if have new folder, create it to recovery folder
+        for i in add_dlist:
+            key = 0
+            i_position = word_position(i, "/", 9)
+            for j in tar_dlist:
+                j_position = word_position(j, "/", 6)
+                if i[i_position:-1] == j[j_position:-1]:
+                    key = 1
+                    continue
+            if key == 0:
+                os.mkdir(dir_path + i[i_position:-1])
+
+        # if have new file, copy it to recovery folder
+        # for i in add_flist:
+        #     i_position = word_position(i, "/", 9)
+        #     slash_cnt = i.count("/")
+        #     i_secposition = word_position(i, "/", slash_cnt)
+
+        #     shutil.copy(i[:-1], dir_path[:-1] + i[i_position:-1])
+
+        #     dockerfile.writelines("COPY ." + dir_path[32:-1] + i[i_position:-1] + " " + i[i_position:i_secposition] + "/ \n")
+
+        # ccc = 0
+        # record_dir = ""
+
+        for i in range(len(add_flist)):
+            i_position = word_position(add_flist[i], "/", 9)
+            slash_cnt = add_flist[i].count("/")
+            i_secposition = word_position(add_flist[i], "/", slash_cnt)
+
+            ii_position = word_position(add_flist[i-1], "/", 9)
+            slash_seccnt = add_flist[i-1].count("/")
+            ii_secposition = word_position(add_flist[i-1], "/", slash_seccnt)
+
+            shutil.copy(add_flist[i][:-1], dir_path + add_flist[i][i_position:-1])
+
+            if i == 0:
+                dockerfile.writelines("COPY ." + dir_path[32:-1] + add_flist[i][i_position:-1] + " " )
+            elif i == len(add_flist)-1:
+                if add_flist[i][i_position:i_secposition] == add_flist[i-1][ii_position:ii_secposition]:
+                    dockerfile.writelines(dir_path[32:-1] + add_flist[i][i_position:-1] + " " + add_flist[i][i_position:i_secposition] + "/ \n")
+                elif add_flist[i][i_position:i_secposition] != add_flist[i-1][ii_position:ii_secposition]: 
+                    dockerfile.writelines(add_flist[i-1][ii_position:ii_secposition] + "/ \n" )
+                    dockerfile.writelines("COPY ." + dir_path[32:-1] + add_flist[i][i_position:-1] + " " + add_flist[i][i_position:i_secposition] + "/ \n")
+            else:
+                if add_flist[i][i_position:i_secposition] == add_flist[i-1][ii_position:ii_secposition]:
+                    dockerfile.writelines(dir_path[32:-1] + add_flist[i][i_position:-1] + " ")
+                elif add_flist[i][i_position:i_secposition] != add_flist[i-1][ii_position:ii_secposition]: 
+                    dockerfile.writelines(add_flist[i-1][ii_position:ii_secposition] + "/ \n" )
+                    dockerfile.writelines("COPY ." + dir_path[32:-1] + add_flist[i][i_position:-1] + " ")
+
+        # # if have modify file, copy it to recovery folder
+        # for i in modify_flist:
+        #     i_position = word_position(i, "/", 9)
+        #     slash_cnt = i.count("/")
+        #     i_secposition = word_position(i, "/", slash_cnt)
+
+        #     shutil.copy(i[:-1], dir_path + i[i_position:-1])
+
+        #     dockerfile.writelines("COPY ." + dir_path[32:-1] + i[i_position:-1] + " " + i[i_position:i_secposition] + "/ \n")
+
+        # if need to delete file, delete it
+        try:
+            delete_fp = open(ib + "/Delete/delete_list.txt", "r")
+            if os.path.getsize(ib + "/Delete/delete_list.txt") > 0 :
+                dockerfile.writelines("RUN rm " )
+            for i in delete_fp.readlines():
+                # os.remove(dir_path + i[1:-1])
+                dockerfile.writelines(dir_path + i[1:-1] + " \\ \n" + "       ")
+        except IOError as e:
+            print(e)
+        finally:
+            delete_fp.close() 
+    except: 
+        pass
     finally:
-        delete_fp.close() 
-    
- 
+        dockerfile.close() 
  
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
