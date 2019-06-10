@@ -99,7 +99,7 @@ class AppWindow(QDialog):
         
         # import the full backup status to image
         try:
-            os.system("cat *.tar " + "| docker import - " + recovery_id)
+            os.system("cat /usr/local/Ncsis_Docker_Recovery/recovery/*.tar " + "| docker import - " + recovery_id)
         except OSError as e:
             print(e) 
 
@@ -126,7 +126,15 @@ class AppWindow(QDialog):
                 recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id)
                 break
             else:
-                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id) 
+                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id)
+
+        try:
+            os.system("docker build -t ttttt .")
+        except:
+            pass 
+
+        shutil.rmtree("/usr/local/Ncsis_Docker_Recovery/recovery/")
+        os.mkdir("/usr/local/Ncsis_Docker_Recovery/recovery/")
 
 def word_position(string, subStr, findCnt):
     listStr = string.split(subStr,findCnt)
@@ -168,54 +176,67 @@ def recovery(time_stamp, ib_path, dir_path, image_id):
             if key == 0:
                 os.mkdir(dir_path + i[i_position:-1])
 
-        # if have new file, copy it to recovery folder
-        # for i in add_flist:
-        #     i_position = word_position(i, "/", 9)
-        #     slash_cnt = i.count("/")
-        #     i_secposition = word_position(i, "/", slash_cnt)
-
-        #     shutil.copy(i[:-1], dir_path[:-1] + i[i_position:-1])
-
-        #     dockerfile.writelines("COPY ." + dir_path[32:-1] + i[i_position:-1] + " " + i[i_position:i_secposition] + "/ \n")
-
-        # ccc = 0
-        # record_dir = ""
-
+        # if have new file, copy it to recovery folder and write it to the dockerfile
         for i in range(len(add_flist)):
+            # get the current file copy destination path
             i_position = word_position(add_flist[i], "/", 9)
             slash_cnt = add_flist[i].count("/")
             i_secposition = word_position(add_flist[i], "/", slash_cnt)
 
-            ii_position = word_position(add_flist[i-1], "/", 9)
+            # get the previous file copy destination path
+            previousi_position = word_position(add_flist[i-1], "/", 9)
             slash_seccnt = add_flist[i-1].count("/")
-            ii_secposition = word_position(add_flist[i-1], "/", slash_seccnt)
+            previousi_secposition = word_position(add_flist[i-1], "/", slash_seccnt)
 
             shutil.copy(add_flist[i][:-1], dir_path + add_flist[i][i_position:-1])
 
-            if i == 0:
+            if len(add_flist) == 1:
+                dockerfile.writelines("COPY ." + dir_path[32:-1] + add_flist[i][i_position:-1] + " " + add_flist[i][i_position:i_secposition] + "/ \n")
+            elif len(add_flist) != 1 and i == 0:
                 dockerfile.writelines("COPY ." + dir_path[32:-1] + add_flist[i][i_position:-1] + " " )
-            elif i == len(add_flist)-1:
-                if add_flist[i][i_position:i_secposition] == add_flist[i-1][ii_position:ii_secposition]:
+            elif len(add_flist) != 1 and i == len(add_flist)-1:
+                if add_flist[i][i_position:i_secposition] == add_flist[i-1][previousi_position:previousi_secposition]:
                     dockerfile.writelines(dir_path[32:-1] + add_flist[i][i_position:-1] + " " + add_flist[i][i_position:i_secposition] + "/ \n")
-                elif add_flist[i][i_position:i_secposition] != add_flist[i-1][ii_position:ii_secposition]: 
-                    dockerfile.writelines(add_flist[i-1][ii_position:ii_secposition] + "/ \n" )
+                elif add_flist[i][i_position:i_secposition] != add_flist[i-1][previousi_position:previousi_secposition]: 
+                    dockerfile.writelines(add_flist[i-1][previousi_position:previousi_secposition] + "/ \n" )
                     dockerfile.writelines("COPY ." + dir_path[32:-1] + add_flist[i][i_position:-1] + " " + add_flist[i][i_position:i_secposition] + "/ \n")
             else:
-                if add_flist[i][i_position:i_secposition] == add_flist[i-1][ii_position:ii_secposition]:
+                if add_flist[i][i_position:i_secposition] == add_flist[i-1][previousi_position:previousi_secposition]:
                     dockerfile.writelines(dir_path[32:-1] + add_flist[i][i_position:-1] + " ")
-                elif add_flist[i][i_position:i_secposition] != add_flist[i-1][ii_position:ii_secposition]: 
-                    dockerfile.writelines(add_flist[i-1][ii_position:ii_secposition] + "/ \n" )
+                elif add_flist[i][i_position:i_secposition] != add_flist[i-1][previousi_position:previousi_secposition]: 
+                    dockerfile.writelines(add_flist[i-1][previousi_position:previousi_secposition] + "/ \n" )
                     dockerfile.writelines("COPY ." + dir_path[32:-1] + add_flist[i][i_position:-1] + " ")
 
-        # # if have modify file, copy it to recovery folder
-        # for i in modify_flist:
-        #     i_position = word_position(i, "/", 9)
-        #     slash_cnt = i.count("/")
-        #     i_secposition = word_position(i, "/", slash_cnt)
+        # if have modify file, copy it to recovery folder and write it to the dockerfile
+        for i in range(len(modify_flist)):
+            # get the current file copy destination path
+            i_position = word_position(modify_flist[i], "/", 9)
+            slash_cnt = modify_flist[i].count("/")
+            i_secposition = word_position(modify_flist[i], "/", slash_cnt)
 
-        #     shutil.copy(i[:-1], dir_path + i[i_position:-1])
+            # get the previous file copy destination path
+            previousi_position = word_position(modify_flist[i-1], "/", 9)
+            slash_seccnt = modify_flist[i-1].count("/")
+            previousi_secposition = word_position(modify_flist[i-1], "/", slash_seccnt)
 
-        #     dockerfile.writelines("COPY ." + dir_path[32:-1] + i[i_position:-1] + " " + i[i_position:i_secposition] + "/ \n")
+            shutil.copy(modify_flist[i][:-1], dir_path + modify_flist[i][i_position:-1])
+
+            if len(modify_flist) == 1:
+                dockerfile.writelines("COPY ." + dir_path[32:-1] + modify_flist[i][i_position:-1] + " " + modify_flist[i][i_position:i_secposition] + "/ \n")
+            elif len(modify_flist) != 1 and i == 0:
+                dockerfile.writelines("COPY ." + dir_path[32:-1] + modify_flist[i][i_position:-1] + " " )
+            elif len(modify_flist) != 1 and i == len(modify_flist)-1:
+                if modify_flist[i][i_position:i_secposition] == modify_flist[i-1][previousi_position:previousi_secposition]:
+                    dockerfile.writelines(dir_path[32:-1] + modify_flist[i][i_position:-1] + " " + modify_flist[i][i_position:i_secposition] + "/ \n")
+                elif modify_flist[i][i_position:i_secposition] != modify_flist[i-1][previousi_position:previousi_secposition]: 
+                    dockerfile.writelines(modify_flist[i-1][previousi_position:previousi_secposition] + "/ \n" )
+                    dockerfile.writelines("COPY ." + dir_path[32:-1] + modify_flist[i][i_position:-1] + " " + modify_flist[i][i_position:i_secposition] + "/ \n")
+            else:
+                if modify_flist[i][i_position:i_secposition] == modify_flist[i-1][previousi_position:previousi_secposition]:
+                    dockerfile.writelines(dir_path[32:-1] + modify_flist[i][i_position:-1] + " ")
+                elif modify_flist[i][i_position:i_secposition] != modify_flist[i-1][previousi_position:previousi_secposition]: 
+                    dockerfile.writelines(modify_flist[i-1][previousi_position:previousi_secposition] + "/ \n" )
+                    dockerfile.writelines("COPY ." + dir_path[32:-1] + modify_flist[i][i_position:-1] + " ")
 
         # if need to delete file, delete it
         try:
@@ -223,8 +244,7 @@ def recovery(time_stamp, ib_path, dir_path, image_id):
             if os.path.getsize(ib + "/Delete/delete_list.txt") > 0 :
                 dockerfile.writelines("RUN rm " )
             for i in delete_fp.readlines():
-                # os.remove(dir_path + i[1:-1])
-                dockerfile.writelines(dir_path + i[1:-1] + " \\ \n" + "       ")
+                dockerfile.writelines("\\" + i[1:-1] + " \\ \n" + "       ")
         except IOError as e:
             print(e)
         finally:
