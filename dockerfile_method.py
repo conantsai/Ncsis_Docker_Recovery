@@ -9,6 +9,7 @@ import time
 import os
 import shutil
 import tarfile
+import docker 
  
 class Runthread_coninfo(QtCore.QThread):
     _signal = pyqtSignal(str)
@@ -40,11 +41,13 @@ class AppWindow(QDialog):
         self.start_getconinfo()
         self.onBindingUI()
  
+    # get running container information
     def start_getconinfo(self): 
         self.thread = Runthread_coninfo()
         self.thread._signal.connect(self.refresh_coninfo)
         self.thread.start()
- 
+    
+    # refresh running container information on UI
     def refresh_coninfo(self, msg):
         self.ui.textBrowser_coninfoC.clear()
         self.ui.textBrowser_coninfoC.append(msg)
@@ -53,6 +56,7 @@ class AppWindow(QDialog):
         self.ui.pushButton_search.clicked.connect(self.on_pushButton_search_click)
         self.ui.pushButton_backup.clicked.connect(self.op_pushButton_recovery_click)
 
+    # search the backup informtaion of assign container  
     def on_pushButton_search_click(self):
         self.ui.textBrowser_backupinfoC.clear()
         search_id = self.ui.lineEdit_conidC.text()
@@ -64,6 +68,7 @@ class AppWindow(QDialog):
                     if files.index(file) == 0:
                         self.ui.textBrowser_backupinfoC.append("Full Backup Data :" )
                     self.ui.textBrowser_backupinfoC.append("    " + file[:-4])
+
             # get the incremental backup data information
             for dir in dirs:
                 if dir.startswith(search_id) and root != "/usr/local/Ncsis_Docker_Backup/backup/":
@@ -73,66 +78,65 @@ class AppWindow(QDialog):
            
     def op_pushButton_recovery_click(self):
         recovery_id = self.ui.lineEdit_recoveryC.text()
+        client = docker.from_env()
 
         backup_path = "/usr/local/Ncsis_Docker_Backup/backup/"
         recovery_path = "/usr/local/Ncsis_Docker_Recovery/recovery/"
         recovery_dirpath = recovery_path + recovery_id + "/"
 
+        # create the floder to move backup file
         try:
             os.mkdir(recovery_dirpath)
         except FileExistsError as e:
-            print(e)
+            self.ui.textBrowser_result.append(str(e))
 
         # copy the full backup to recovery folder
         with os.popen("find " + backup_path + recovery_id[:-11] + "/full_backup/ -type f") as f:
             shutil.copy(f.readline()[:-1], recovery_path)
-        
-        # untar full backup file 
-        with os.popen("find " + recovery_path  + " -type f") as f:
-            try:
-                tar = tarfile.open(f.readline()[:-1])  
-                tar.extractall(path=recovery_dirpath)  
-                os.remove(f.readline()[:-1])
-            except Exception as e:
-                pass
 
-        
         # import the full backup status to image
         try:
-            os.system("cat /usr/local/Ncsis_Docker_Recovery/recovery/*.tar " + "| docker import - " + recovery_id)
+            os.system("cat /usr/local/Ncsis_Docker_Recovery/recovery/*.tar " + "| docker import - " + recovery_id + "_fb" )
         except OSError as e:
-            print(e) 
+            self.ui.textBrowser_result.append(str(e))
 
-        # get the incremental backup list
+        # get the incremental backup list and sort it
         latest_backup = recovery_id[-10:]
         ib_sort = []
         ib_dirlist = os.listdir(backup_path + recovery_id[:-11] + "/incremental_backup/")
         for i in ib_dirlist:
             ib_sort.append(i[-10:])
         ib_sort.sort()
-
+        
+        # write the base layer to dockerfile
         try:
             dockerfile = open("/usr/local/Ncsis_Docker_Recovery/dockerfile", "a+")
             dockerfile.seek(0)
             dockerfile.truncate()
-            dockerfile.writelines("FROM " + recovery_id + ":latest" + "\n")
-        except: 
-            pass
+            dockerfile.writelines("FROM " + recovery_id + "_fb" + ":latest" + "\n")
+        except IOError as e : 
+            self.ui.textBrowser_result.append(str(e))
         finally:
             dockerfile.close()
 
+        # write the COPY and RUN layer to dockerfile
         for i in ib_sort:
             if int(i) ==  int(latest_backup):
-                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id)
+                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id, self)
                 break
             else:
-                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id)
+                recovery(i, backup_path + recovery_id[:-11] + "/incremental_backup/" + recovery_id[:-11], recovery_dirpath, recovery_id, self)
 
+        # use dockerfile to build recovery image
         try:
-            os.system("docker build -t ttttt .")
-        except:
-            pass 
+            client.images.build(rm=True, path = "/usr/local/Ncsis_Docker_Recovery/", tag = recovery_id)
+            client.images.remove(recovery_id + "_fb")
+        except docker.errors.BuildError:
+            self.ui.textBrowser_result.append("Have an error during build the recovery image")
 
+        self.ui.textBrowser_result.append("Successfully built the recovery image, its tag " + recovery_id)
+
+        # remove the recovery folder
         shutil.rmtree("/usr/local/Ncsis_Docker_Recovery/recovery/")
         os.mkdir("/usr/local/Ncsis_Docker_Recovery/recovery/")
 
@@ -142,7 +146,7 @@ def word_position(string, subStr, findCnt):
         return "not find"
     return len(string)-len(listStr[-1])-len(subStr)
 
-def recovery(time_stamp, ib_path, dir_path, image_id):
+def recovery(time_stamp, ib_path, dir_path, image_id, self):
     ib = ib_path + "_" + time_stamp
 
     # list the incremental backup add file
@@ -244,9 +248,9 @@ def recovery(time_stamp, ib_path, dir_path, image_id):
             if os.path.getsize(ib + "/Delete/delete_list.txt") > 0 :
                 dockerfile.writelines("RUN rm " )
             for i in delete_fp.readlines():
-                dockerfile.writelines("\\" + i[1:-1] + " \\ \n" + "       ")
+                dockerfile.writelines("//" + i[1:-1] + " \\ \n" + "       ")
         except IOError as e:
-            print(e)
+            self.ui.textBrowser_result.append(e)
         finally:
             delete_fp.close() 
     except: 
